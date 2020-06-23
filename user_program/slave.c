@@ -23,7 +23,7 @@ int main (int argc, char* argv[]) {
 	struct timeval start;
 	struct timeval end;
 	double trans_time; //calulate the time between the device is opened and it is closed
-	char *kernel_address, *file_address;
+	char *kernel_address = NULL, *file_address = NULL;
 	int first = 1;
 
 	file_num = atoi(argv[1]);
@@ -54,9 +54,10 @@ int main (int argc, char* argv[]) {
 
 	    //write(1, "ioctl success\n", 14);
 
-
+		size_t shift = 0;
+		int page_num = 0;
 		switch(method[0]) {
-			case 'f'://fcntl : read()/write()zz
+			case 'f'://fcntl : read()/write()
 				do {
 					ret = read(dev_fd, buf, sizeof(buf)); // read from the the device
 					write(file_fd, buf, ret); //write to the input file
@@ -66,16 +67,22 @@ int main (int argc, char* argv[]) {
 			case 'm': //mmap
 				while ((ret = ioctl(dev_fd, 0x12345678)) > 0) {
 					posix_fallocate(file_fd, file_size, ret);
-					file_address = mmap(NULL, ret, PROT_WRITE, MAP_SHARED, file_fd, file_size);
-					kernel_address = mmap(NULL, ret, PROT_READ, MAP_SHARED, dev_fd, file_size);
-					memcpy(file_address, kernel_address, ret);
+					file_address = mmap(NULL, shift + ret, PROT_WRITE, MAP_SHARED, file_fd, PAGE_SIZE * page_num);
+					kernel_address = mmap(NULL, ret, PROT_READ, MAP_SHARED, dev_fd, 0);
+					memcpy(file_address + shift, kernel_address, ret);
+
 					file_size += ret;
 					if (first == 1) {
 						ioctl(dev_fd, 0x12345676, (unsigned long)kernel_address);
 						first = 0;
 					}
 					munmap(kernel_address, ret);
-					munmap(file_address, ret);
+					munmap(file_address, shift + ret);
+					++page_num;
+					if(ret < PAGE_SIZE) {
+						shift += ret;
+						--page_num;
+					}
 				}
 				break;
 		}
