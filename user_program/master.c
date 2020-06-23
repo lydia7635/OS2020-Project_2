@@ -13,11 +13,12 @@
 #define PAGE_SIZE 4096
 #define BUF_SIZE 512
 #define MAX_FILENUM 100
+#define MAP_SIZE PAGE_SIZE * 100
+
 size_t get_filesize(const char* filename);//get the size of the input file
 
 
-int main (int argc, char* argv[])
-{
+int main (int argc, char* argv[]) {
 	char buf[BUF_SIZE];
 	int dev_fd, file_fd;// the fd for the device and the fd for the input file
 	int file_num;
@@ -27,76 +28,87 @@ int main (int argc, char* argv[])
 	struct timeval start;
 	struct timeval end;
 	double trans_time; //calulate the time between the device is opened and it is closed
+	int first = 1;
 
 	file_num = atoi(argv[1]);
-	printf("file_num = %d\n", file_num);
+	//printf("file_num = %d\n", file_num);
 
 	for(int i = 0; i < file_num; ++i) {
 		strncpy(file_name[i], argv[i + 2], 50);
-		printf("filename = %s\n", file_name[i]);
+		//printf("filename = %s\n", file_name[i]);
 	}
 	strncpy(method, argv[file_num + 2], 20);
-	printf("method = %s\n", method);
+	//printf("method = %s\n", method);
 
-	if( (dev_fd = open("/dev/master_device", O_RDWR)) < 0)
-	{
+	if( (dev_fd = open("/dev/master_device", O_RDWR)) < 0) 	{
 		perror("failed to open /dev/master_device\n");
 		return 1;
 	}
 
 	gettimeofday(&start ,NULL);
 	for(int i = 0; i < file_num; ++i) {
-		if( (file_fd = open (file_name[i], O_RDWR)) < 0 )
-		{
+		offset = 0;
+		if( (file_fd = open (file_name[i], O_RDWR)) < 0 ) {
 			perror("failed to open input file\n");
 			return 1;
 		}
 
-		if( (file_size = get_filesize(file_name[i])) < 0)
-		{
+		if( (file_size = get_filesize(file_name[i])) < 0) {
 			perror("failed to get filesize\n");
 			return 1;
 		}
 
 		total_size += file_size;
 
-		if(ioctl(dev_fd, 0x12345677) == -1) //0x12345677 : create socket and accept the connection from the slave
-		{
+		if(ioctl(dev_fd, 0x12345677) == -1) { //0x12345677 : create socket and accept the connection from the slave
 			perror("ioclt server create socket error\n");
 			return 1;
 		}
 
-		switch(method[0])
-		{
+
+		switch(method[0]) {
 			case 'f': //fcntl : read()/write()
-				do
-				{
+				do {
 					ret = read(file_fd, buf, sizeof(buf)); // read from the input file
 					write(dev_fd, buf, ret);//write to the the device
-				}while(ret > 0);
+				} while(ret > 0);
+				break;
+			case 'm': //mmap
+				while (offset < file_size) {
+					size_t len = ((file_size - offset) < PAGE_SIZE)? file_size - offset: PAGE_SIZE;
+					file_address = mmap(NULL, len, PROT_READ, MAP_SHARED, file_fd, offset);
+					kernel_address = mmap(NULL, len, PROT_WRITE, MAP_SHARED, dev_fd, offset);
+					if (first == 1) {
+						ioctl(dev_fd, 0x12345676, (unsigned long)kernel_address);
+						first = 0;
+					}
+					memcpy(kernel_address, file_address, len);
+					offset += len;
+					ioctl(dev_fd, 0x12345678, len);
+					munmap(file_address, len);
+					munmap(kernel_address, len);
+				}	
 				break;
 		}
 
-		if(ioctl(dev_fd, 0x12345679) == -1) // end sending data, close the connection
-		{
+		if(ioctl(dev_fd, 0x12345679) == -1) {// end sending data, close the connection
 			perror("ioclt server exits error\n");
 			return 1;
 		}
 
 		close(file_fd);
+		//printf("close fd end\n");
 	}
-	
 	gettimeofday(&end, NULL);
 	trans_time = (end.tv_sec - start.tv_sec)*1000 + (end.tv_usec - start.tv_usec)*0.0001;
-	printf("Transmission time: %lf ms, File size: %d bytes\n", trans_time, total_size);
+	printf("Transmission time: %lf ms, File size: %d bytes\n", trans_time, (int)total_size);
 
 	close(dev_fd);
 
 	return 0;
 }
 
-size_t get_filesize(const char* filename)
-{
+size_t get_filesize(const char* filename) {
     struct stat st;
     stat(filename, &st);
     return st.st_size;
