@@ -1,0 +1,11 @@
+- target_file
+Transmission time: 16997.158500 ms, File size: 12022885 bytes
+
+- target_file_1, target_file_2, ..., target_file_10
+Transmission time: 1066.912300 ms, File size: 24146 bytes
+
+- in_40960
+Transmission time: 25.964300 ms, File size: 40960 bytes
+
+- in_1, in_2, ..., in_10
+Transmission time: 30.899900 ms, File size: 40960 bytes
